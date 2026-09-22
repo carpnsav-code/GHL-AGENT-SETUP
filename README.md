@@ -82,6 +82,31 @@ Write operations (`contacts.write`, `conversations/message.write`,
 `opportunities.write`) are not probed, because probing them would create records.
 Add them to the token when the agent needs to make changes.
 
+## FloorNexus MCP server
+
+`.mcp.json` registers the FloorNexus MCP server so Claude Code (and any other
+MCP client that reads the file) can call its tools alongside this GHL client:
+
+```json
+{ "mcpServers": { "floornexus": { "type": "http", "url": "https://mcp.floornexus.com/mcp" } } }
+```
+
+The endpoint is OAuth-protected — an unauthenticated request returns `401` with
+a `WWW-Authenticate: Bearer` challenge. Authorization is handled by
+`https://api.floornexus.com`, which supports dynamic client registration and
+PKCE, so no client ID or secret needs to be committed here:
+
+| Endpoint      | URL                                            |
+| ------------- | ---------------------------------------------- |
+| Authorize     | `https://app.floornexus.com/oauth/authorize`   |
+| Token         | `https://api.floornexus.com/api/oauth/token`   |
+| Registration  | `https://api.floornexus.com/api/oauth/register`|
+
+Scopes advertised: `mcp:tools`, `contacts:read`, `contacts:write`.
+
+Run `/mcp` in Claude Code and pick **floornexus** to complete the browser sign-in;
+the token is stored by the client, not in this repo.
+
 ## Notes
 
 - **Version headers.** GoHighLevel pins each API group to a different `Version`
@@ -105,3 +130,4 @@ Add them to the token when the agent needs to make changes.
 | `src/verify.js`   | Connection check and scope prober              |
 | `src/describe.js` | Account structure summary                      |
 | `src/index.js`    | Public exports                                 |
+| `.mcp.json`       | FloorNexus MCP server registration             |

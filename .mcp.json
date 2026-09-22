@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "floornexus": {
+      "type": "http",
+      "url": "https://mcp.floornexus.com/mcp"
+    }
+  }
+}
