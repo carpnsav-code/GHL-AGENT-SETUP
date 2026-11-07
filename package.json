@@ -1,17 +1,20 @@
 {
   "name": "ghl-agent-setup",
   "version": "1.0.0",
-  "description": "Agent connection layer for a GoHighLevel (LeadConnector) account",
+  "description": "Mint Concrete crew app (time clock + team chat) and GoHighLevel agent connection layer",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning app/server.js",
+    "app": "node --no-warnings=ExperimentalWarning app/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test \"test/**/*.test.js\"",
     "connect": "node src/verify.js",
     "verify": "node src/verify.js",
     "scopes": "node src/verify.js --scopes",
     "describe": "node src/describe.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "license": "MIT"
 }

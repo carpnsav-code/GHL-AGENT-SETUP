@@ -1,4 +1,86 @@
-# GHL Agent Setup
+# Mint Concrete
+
+Two things live in this repository:
+
+1. **The Mint Concrete crew app** (`app/`) — accounts, a clock in / clock out
+   time clock, and the company group chat. Runs on phones as an installable
+   web app. See [Crew app](#crew-app).
+2. **The GoHighLevel agent connection layer** (`src/`) — see
+   [GHL Agent Setup](#ghl-agent-setup).
+
+Both are zero-dependency Node (22.13+): `npm install` has nothing to install.
+
+## Crew app
+
+```bash
+npm run app            # http://localhost:3000
+```
+
+Open it on a phone, tap **Create account**, and you're in. The first account
+created becomes the `owner`; everyone after that is `crew`.
+
+### What it does
+
+- **Accounts & one-time login.** Each crew member creates their own account.
+  The login is remembered on that device for a year (and extends itself with
+  use), so after the first time the app opens straight to their own view.
+  Passwords are hashed with scrypt; only a hash of the session token is stored.
+- **Clock in / clock out.** One tap to start, one to stop, with an optional job
+  site note. Every shift is saved to the database. The screen shows the running
+  shift timer, today's and this week's hours, who else is on the clock right
+  now, and the person's recent shifts.
+- **Mint Concrete group chat.** One company-wide chat for everyone. Messages
+  are saved and delivered live (Server-Sent Events, with polling as a fallback).
+  An unread badge shows on the chat tab.
+- **Installable.** Includes a web app manifest and service worker, so crew can
+  "Add to Home Screen" on iPhone or tap Install on Android and get an app icon.
+
+### Settings
+
+| Variable            | Default                     | Purpose                                                        |
+| ------------------- | --------------------------- | -------------------------------------------------------------- |
+| `PORT`              | `3000`                      | Port to listen on                                              |
+| `MC_DB_FILE`        | `data/mint-concrete.sqlite` | SQLite database file (created automatically; gitignored)       |
+| `MC_JOIN_CODE`      | _(none)_                    | When set, creating an account requires this code. Recommended. |
+| `MC_SECURE_COOKIES` | _(auto)_                    | `1`/`0` to force the `Secure` cookie flag on/off               |
+
+Set `MC_JOIN_CODE` before giving the URL to the crew so strangers can't make
+accounts and read the chat. Put the app behind HTTPS (any reverse proxy such as
+Caddy, nginx or a hosting platform works); the server honours
+`X-Forwarded-Proto` to mark cookies `Secure`.
+
+### API
+
+All endpoints are JSON under `/api`. Authentication is the `mc_session` cookie
+set at login, or `Authorization: Bearer <token>`.
+
+| Method | Path                    | Purpose                                                   |
+| ------ | ----------------------- | --------------------------------------------------------- |
+| POST   | `/api/auth/register`    | `{username, displayName, password, joinCode?}`            |
+| POST   | `/api/auth/login`       | `{username, password}` → `{user, token}` + cookie         |
+| POST   | `/api/auth/logout`      | Ends the session                                          |
+| GET    | `/api/auth/me`          | Current user                                              |
+| GET    | `/api/team`             | Everyone with an account                                  |
+| GET    | `/api/time/status`      | Your open shift and who is clocked in now                 |
+| POST   | `/api/time/clock-in`    | `{note?}`                                                 |
+| POST   | `/api/time/clock-out`   | `{note?}`                                                 |
+| GET    | `/api/time/entries`     | Your shifts, newest first (`?limit=`)                     |
+| GET    | `/api/chat/messages`    | Latest messages, or `?after=<id>` / `?before=<id>`        |
+| POST   | `/api/chat/messages`    | `{body}`                                                  |
+| GET    | `/api/chat/stream`      | Live events (`message`, `clock`) as Server-Sent Events     |
+
+### Files
+
+| Path                         | Purpose                                         |
+| ---------------------------- | ----------------------------------------------- |
+| `app/server.js`              | HTTP server, static files, startup              |
+| `app/api.js`                 | API routes                                      |
+| `app/auth.js`                | Password hashing, sessions, cookies             |
+| `app/db.js`                  | SQLite schema and queries                       |
+| `app/public/`                | The web app (HTML, CSS, JS, manifest, icons)    |
+| `test/app.test.js`           | End-to-end API tests (`npm test`)               |
+
+## GHL Agent Setup
 
 Connection layer between this agent and a GoHighLevel (LeadConnector) sub-account.
 Zero dependencies — built on the Node 20+ built-in `fetch`.
