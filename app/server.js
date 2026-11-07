@@ -61,7 +61,10 @@ export function createServer(options = {}) {
   const dbFile = options.dbFile ?? process.env.MC_DB_FILE ?? DEFAULT_DB;
   const db = openDatabase(dbFile);
   purgeExpiredSessions(db);
-  const api = createApi(db, { joinCode: options.joinCode ?? process.env.MC_JOIN_CODE ?? '' });
+  const api = createApi(db, {
+    joinCode: options.joinCode ?? process.env.MC_JOIN_CODE ?? '',
+    requireLocation: options.requireLocation ?? process.env.MC_REQUIRE_LOCATION !== '0',
+  });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

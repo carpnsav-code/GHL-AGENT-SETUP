@@ -88,8 +88,38 @@ function makeRateLimiter({ max, windowMs }) {
 
 const str = (v, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
+function locationOut(lat, lng, accuracy) {
+  if (lat == null || lng == null) return null;
+  return { lat, lng, accuracy: accuracy ?? null };
+}
+
 function entryOut(e) {
-  return { id: e.id, clockIn: e.clock_in, clockOut: e.clock_out, note: e.note ?? '' };
+  return {
+    id: e.id,
+    clockIn: e.clock_in,
+    clockOut: e.clock_out,
+    note: e.note ?? '',
+    inLocation: locationOut(e.in_lat, e.in_lng, e.in_accuracy),
+    outLocation: locationOut(e.out_lat, e.out_lng, e.out_accuracy),
+  };
+}
+
+/**
+ * Validate the GPS fix sent by the phone. Returns `{lat, lng, accuracy}` or
+ * null when none was sent; throws when `required` and none was sent.
+ */
+function parseLocation(raw, required) {
+  if (raw == null || typeof raw !== 'object') {
+    if (required) throw new HttpError(400, 'Location is required. Turn on location access for this app and try again.');
+    return null;
+  }
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    throw new HttpError(400, 'Invalid location.');
+  }
+  const accuracy = Number.isFinite(Number(raw.accuracy)) && Number(raw.accuracy) >= 0 ? Math.round(Number(raw.accuracy)) : null;
+  return { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), accuracy };
 }
 
 function messageOut(m) {
@@ -105,7 +135,7 @@ function messageOut(m) {
 
 // ---------------------------------------------------------------------------
 
-export function createApi(db, { joinCode = '' } = {}) {
+export function createApi(db, { joinCode = '', requireLocation = true } = {}) {
   const authLimiter = makeRateLimiter({ max: 30, windowMs: 15 * 60 * 1000 });
 
   // Live update stream (Server-Sent Events) ---------------------------------
@@ -191,14 +221,17 @@ export function createApi(db, { joinCode = '' } = {}) {
         displayName: r.display_name,
         since: r.clock_in,
         note: r.note ?? '',
+        location: locationOut(r.in_lat, r.in_lng, r.in_accuracy),
       })),
+      requireLocation,
       serverTime: store.now(),
     });
   });
 
   route('POST', '/api/time/clock-in', ({ res, user, body }) => {
     if (store.openEntryFor(db, user.id)) throw new HttpError(409, 'You are already clocked in.');
-    const entry = store.clockIn(db, user.id, str(body.note, MAX_NOTE));
+    const location = parseLocation(body.location, requireLocation);
+    const entry = store.clockIn(db, user.id, str(body.note, MAX_NOTE), location);
     broadcast('clock', { userId: user.id, displayName: user.display_name, action: 'in', at: entry.clock_in });
     send(res, 201, { entry: entryOut(entry) });
   });
@@ -206,7 +239,8 @@ export function createApi(db, { joinCode = '' } = {}) {
   route('POST', '/api/time/clock-out', ({ res, user, body }) => {
     const open = store.openEntryFor(db, user.id);
     if (!open) throw new HttpError(409, 'You are not clocked in.');
-    const entry = store.clockOut(db, open.id, str(body.note, MAX_NOTE));
+    const location = parseLocation(body.location, requireLocation);
+    const entry = store.clockOut(db, open.id, str(body.note, MAX_NOTE), location);
     broadcast('clock', { userId: user.id, displayName: user.display_name, action: 'out', at: entry.clock_out });
     send(res, 200, { entry: entryOut(entry) });
   });

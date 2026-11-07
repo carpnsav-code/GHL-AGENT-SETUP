@@ -94,14 +94,25 @@ test('login works with a Bearer token too (installed-app fallback)', async () =>
   assert.equal(r.data.user.username, 'mike');
 });
 
-test('clock in / clock out is saved and reported', async () => {
+const SITE = { lat: 33.448376, lng: -112.074036, accuracy: 12.4 };
+const YARD = { lat: 33.4512, lng: -112.0699, accuracy: 8 };
+
+test('clock in / clock out is saved with location and reported', async () => {
   let r = await mike.call('GET', '/api/time/status');
   assert.equal(r.data.open, null);
+  assert.equal(r.data.requireLocation, true);
 
   r = await mike.call('POST', '/api/time/clock-in', { note: 'Elm St driveway' });
+  assert.equal(r.status, 400, 'location is required by default');
+  r = await mike.call('POST', '/api/time/clock-in', { location: { lat: 999, lng: 0 } });
+  assert.equal(r.status, 400, 'bogus coordinates are rejected');
+
+  r = await mike.call('POST', '/api/time/clock-in', { note: 'Elm St driveway', location: SITE });
   assert.equal(r.status, 201);
   assert.equal(r.data.entry.note, 'Elm St driveway');
   assert.equal(r.data.entry.clockOut, null);
+  assert.deepEqual(r.data.entry.inLocation, { lat: 33.448376, lng: -112.074036, accuracy: 12 });
+  assert.equal(r.data.entry.outLocation, null);
 
   r = await mike.call('POST', '/api/time/clock-in', {});
   assert.equal(r.status, 409, 'cannot clock in twice');
@@ -109,11 +120,17 @@ test('clock in / clock out is saved and reported', async () => {
   r = await boss.call('GET', '/api/time/status');
   assert.equal(r.data.onClock.length, 1);
   assert.equal(r.data.onClock[0].displayName, 'Mike Ramirez');
+  assert.equal(r.data.onClock[0].location.lat, 33.448376);
 
   r = await mike.call('POST', '/api/time/clock-out', { note: 'poured 2 slabs' });
+  assert.equal(r.status, 400, 'location is required to clock out too');
+
+  r = await mike.call('POST', '/api/time/clock-out', { note: 'poured 2 slabs', location: YARD });
   assert.equal(r.status, 200);
   assert.ok(r.data.entry.clockOut);
   assert.equal(r.data.entry.note, 'Elm St driveway — poured 2 slabs');
+  assert.deepEqual(r.data.entry.inLocation, { lat: 33.448376, lng: -112.074036, accuracy: 12 });
+  assert.deepEqual(r.data.entry.outLocation, { lat: 33.4512, lng: -112.0699, accuracy: 8 });
 
   r = await mike.call('POST', '/api/time/clock-out', {});
   assert.equal(r.status, 409, 'cannot clock out when not clocked in');
@@ -121,9 +138,34 @@ test('clock in / clock out is saved and reported', async () => {
   r = await mike.call('GET', '/api/time/entries');
   assert.equal(r.data.entries.length, 1);
   assert.ok(Date.parse(r.data.entries[0].clockOut) >= Date.parse(r.data.entries[0].clockIn));
+  assert.equal(r.data.entries[0].outLocation.lng, -112.0699);
 
   r = await boss.call('GET', '/api/time/entries');
   assert.equal(r.data.entries.length, 0, 'entries are per person');
+});
+
+test('location can be made optional with MC_REQUIRE_LOCATION=0', async () => {
+  const srv = createServer({ dbFile: ':memory:', requireLocation: false });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const b = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const reg = await fetch(b + '/api/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'solo', password: 'secret1' }),
+    });
+    const { token } = await reg.json();
+    const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    let r = await fetch(b + '/api/time/clock-in', { method: 'POST', headers: h, body: '{}' });
+    assert.equal(r.status, 201);
+    assert.equal((await r.json()).entry.inLocation, null);
+    r = await fetch(b + '/api/time/clock-out', { method: 'POST', headers: h, body: JSON.stringify({ location: SITE }) });
+    assert.equal(r.status, 200);
+    const { entry } = await r.json();
+    assert.equal(entry.inLocation, null);
+    assert.equal(entry.outLocation.lat, 33.448376);
+  } finally {
+    await srv.shutdown();
+  }
 });
 
 test('group chat: everyone sees everyone, live over SSE', async () => {

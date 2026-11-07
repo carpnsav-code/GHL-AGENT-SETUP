@@ -27,11 +27,17 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
   CREATE TABLE IF NOT EXISTS time_entries (
-    id        INTEGER PRIMARY KEY,
-    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    clock_in  TEXT NOT NULL,
-    clock_out TEXT,
-    note      TEXT
+    id           INTEGER PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    clock_in     TEXT NOT NULL,
+    clock_out    TEXT,
+    note         TEXT,
+    in_lat       REAL,
+    in_lng       REAL,
+    in_accuracy  REAL,
+    out_lat      REAL,
+    out_lng      REAL,
+    out_accuracy REAL
   );
   CREATE INDEX IF NOT EXISTS time_entries_user ON time_entries(user_id, clock_in);
   -- Only one open shift per person.
@@ -57,7 +63,16 @@ export function openDatabase(file) {
   db.exec('PRAGMA foreign_keys = ON;');
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Add columns introduced after the first release to existing databases. */
+function migrate(db) {
+  const have = new Set(db.prepare('PRAGMA table_info(time_entries)').all().map((c) => c.name));
+  for (const col of ['in_lat', 'in_lng', 'in_accuracy', 'out_lat', 'out_lng', 'out_accuracy']) {
+    if (!have.has(col)) db.exec(`ALTER TABLE time_entries ADD COLUMN ${col} REAL`);
+  }
 }
 
 export const now = () => new Date().toISOString();
@@ -126,20 +141,28 @@ export function openEntryFor(db, userId) {
   return db.prepare('SELECT * FROM time_entries WHERE user_id = ? AND clock_out IS NULL').get(userId) ?? null;
 }
 
-export function clockIn(db, userId, note) {
+/** `location` is `{ lat, lng, accuracy }` from the phone's GPS, or null. */
+export function clockIn(db, userId, note, location = null) {
   const info = db
-    .prepare('INSERT INTO time_entries (user_id, clock_in, note) VALUES (?, ?, ?)')
-    .run(userId, now(), note || null);
+    .prepare(
+      'INSERT INTO time_entries (user_id, clock_in, note, in_lat, in_lng, in_accuracy) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(userId, now(), note || null, location?.lat ?? null, location?.lng ?? null, location?.accuracy ?? null);
   return db.prepare('SELECT * FROM time_entries WHERE id = ?').get(Number(info.lastInsertRowid));
 }
 
-export function clockOut(db, entryId, note) {
+export function clockOut(db, entryId, note, location = null) {
+  const loc = [location?.lat ?? null, location?.lng ?? null, location?.accuracy ?? null];
   if (note) {
     db.prepare(
-      "UPDATE time_entries SET clock_out = ?, note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || ' — ' || ? END WHERE id = ?",
-    ).run(now(), note, note, entryId);
+      `UPDATE time_entries
+          SET clock_out = ?, out_lat = ?, out_lng = ?, out_accuracy = ?,
+              note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note || ' — ' || ? END
+        WHERE id = ?`,
+    ).run(now(), ...loc, note, note, entryId);
   } else {
-    db.prepare('UPDATE time_entries SET clock_out = ? WHERE id = ?').run(now(), entryId);
+    db.prepare('UPDATE time_entries SET clock_out = ?, out_lat = ?, out_lng = ?, out_accuracy = ? WHERE id = ?')
+      .run(now(), ...loc, entryId);
   }
   return db.prepare('SELECT * FROM time_entries WHERE id = ?').get(entryId);
 }
@@ -154,7 +177,7 @@ export function listEntries(db, userId, limit = 100) {
 export function listOnClock(db) {
   return db
     .prepare(
-      `SELECT t.id, t.user_id, t.clock_in, t.note, u.display_name, u.username
+      `SELECT t.id, t.user_id, t.clock_in, t.note, t.in_lat, t.in_lng, t.in_accuracy, u.display_name, u.username
          FROM time_entries t JOIN users u ON u.id = t.user_id
         WHERE t.clock_out IS NULL
         ORDER BY t.clock_in`,

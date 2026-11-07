@@ -93,6 +93,33 @@ function overlapMs(entry, from) {
   return Math.max(0, Math.min(e, Date.now()) - Math.max(s, from));
 }
 
+/** Ask the phone for a GPS fix. Resolves to {lat, lng, accuracy} or rejects with a readable message. */
+function getLocation() {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('This device cannot share its location.'));
+    if (!window.isSecureContext) return reject(new Error('Location only works over HTTPS. Ask the office for the secure app link.'));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => {
+        const msgs = {
+          1: 'Location access is blocked. Allow location for this app in your phone settings, then try again.',
+          2: "Couldn't get a GPS fix. Step outside or check that location services are on, then try again.",
+          3: 'Getting your location timed out. Try again.',
+        };
+        reject(new Error(msgs[err.code] || 'Could not get your location.'));
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
+    );
+  });
+}
+
+const mapUrl = (loc) => `https://www.google.com/maps?q=${loc.lat},${loc.lng}`;
+function pin(loc, label) {
+  if (!loc) return `<span class="loc none">${label}: no location</span>`;
+  const acc = loc.accuracy != null ? ` ±${Math.round(loc.accuracy)}m` : '';
+  return `<a class="loc" href="${mapUrl(loc)}" target="_blank" rel="noopener">📍 ${label}${acc}</a>`;
+}
+
 let toastTimer = null;
 function toast(msg, kind = '') {
   $toast.textContent = msg;
@@ -270,7 +297,10 @@ function onVisibility() {
 async function loadClock() {
   try {
     const [status, list] = await Promise.all([api.get('/api/time/status'), api.get('/api/time/entries?limit=200')]);
-    state.clock = { open: status.open, onClock: status.onClock, entries: list.entries, loaded: true };
+    state.clock = {
+      open: status.open, onClock: status.onClock, entries: list.entries, loaded: true,
+      requireLocation: status.requireLocation,
+    };
     renderClock();
   } catch (err) {
     if (err.status === 401) return sessionLost();
@@ -293,6 +323,7 @@ function renderClock() {
       <div class="label">${open ? 'On the clock' : 'Off the clock'}</div>
       <div class="big" id="elapsed">${open ? fmtClock(Date.now() - Date.parse(open.clockIn)) : '—'}</div>
       <div class="sub">${open ? `Clocked in at ${fmtTime(open.clockIn)}${open.note ? ` · ${esc(open.note)}` : ''}` : 'Tap below when you start work'}</div>
+      ${open ? `<div class="sub">${pin(open.inLocation, 'Clock-in location')}</div>` : '<div class="sub small">Your location is recorded when you clock in and out.</div>'}
     </div>
     <form id="clockForm">
       <div class="field">
@@ -310,7 +341,7 @@ function renderClock() {
       ${onClock.length ? onClock.map((p) => `
         <div class="row">
           <div class="avatar" style="background:${avatarColor(p.displayName)}">${esc(initials(p.displayName))}</div>
-          <div class="main"><strong>${esc(p.displayName)}${p.userId === state.user.id ? ' (you)' : ''}</strong><span>Since ${fmtTime(p.since)}${p.note ? ` · ${esc(p.note)}` : ''}</span></div>
+          <div class="main"><strong>${esc(p.displayName)}${p.userId === state.user.id ? ' (you)' : ''}</strong><span>Since ${fmtTime(p.since)}${p.note ? ` · ${esc(p.note)}` : ''}</span><span>${pin(p.location, 'Location')}</span></div>
           <div class="dur live" data-since="${esc(p.since)}">${fmtDur(Date.now() - Date.parse(p.since))}</div>
         </div>`).join('') : '<div class="empty">Nobody is clocked in right now.</div>'}
     </div>
@@ -318,7 +349,7 @@ function renderClock() {
     <div class="card list">
       ${recent.length ? recent.map((e) => `
         <div class="row">
-          <div class="main"><strong>${fmtDay(e.clockIn)}</strong><span>${fmtTime(e.clockIn)} – ${fmtTime(e.clockOut)}${e.note ? ` · ${esc(e.note)}` : ''}</span></div>
+          <div class="main"><strong>${fmtDay(e.clockIn)}</strong><span>${fmtTime(e.clockIn)} – ${fmtTime(e.clockOut)}${e.note ? ` · ${esc(e.note)}` : ''}</span><span>${pin(e.inLocation, 'In')} &nbsp; ${pin(e.outLocation, 'Out')}</span></div>
           <div class="dur">${fmtDur(Date.parse(e.clockOut) - Date.parse(e.clockIn))}</div>
         </div>`).join('') : '<div class="empty">No completed shifts yet.</div>'}
     </div>`;
@@ -326,10 +357,23 @@ function renderClock() {
   document.getElementById('clockForm').onsubmit = async (e) => {
     e.preventDefault();
     const btn = document.getElementById('clockBtn');
+    const label = btn.textContent;
     btn.disabled = true;
+    btn.textContent = 'Getting your location…';
     const note = document.getElementById('note').value.trim();
+    let location = null;
     try {
-      await api.post(open ? '/api/time/clock-out' : '/api/time/clock-in', { note });
+      location = await getLocation();
+    } catch (err) {
+      if (state.clock.requireLocation !== false) {
+        toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = label;
+        return;
+      }
+    }
+    btn.textContent = open ? 'Clocking out…' : 'Clocking in…';
+    try {
+      await api.post(open ? '/api/time/clock-out' : '/api/time/clock-in', { note, location });
       toast(open ? 'Clocked out. Nice work.' : 'Clocked in. Have a good one.');
       if (navigator.vibrate) navigator.vibrate(30);
     } catch (err) {

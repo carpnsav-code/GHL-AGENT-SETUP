@@ -25,10 +25,14 @@ created becomes the `owner`; everyone after that is `crew`.
   The login is remembered on that device for a year (and extends itself with
   use), so after the first time the app opens straight to their own view.
   Passwords are hashed with scrypt; only a hash of the session token is stored.
-- **Clock in / clock out.** One tap to start, one to stop, with an optional job
-  site note. Every shift is saved to the database. The screen shows the running
-  shift timer, today's and this week's hours, who else is on the clock right
-  now, and the person's recent shifts.
+- **Clock in / clock out with location.** One tap to start, one to stop, with
+  an optional job site note. The phone's GPS position (latitude, longitude and
+  accuracy) is captured at clock-in and again at clock-out and saved with the
+  shift. Each shift shows map links for both points, and the "on the clock"
+  roster shows where each person clocked in. Location is required by default;
+  if the phone refuses, the app explains what to turn on and the clock-in is
+  not recorded. The screen also shows the running shift timer, today's and this
+  week's hours, and recent shifts.
 - **Mint Concrete group chat.** One company-wide chat for everyone. Messages
   are saved and delivered live (Server-Sent Events, with polling as a fallback).
   An unread badge shows on the chat tab.
@@ -42,12 +46,15 @@ created becomes the `owner`; everyone after that is `crew`.
 | `PORT`              | `3000`                      | Port to listen on                                              |
 | `MC_DB_FILE`        | `data/mint-concrete.sqlite` | SQLite database file (created automatically; gitignored)       |
 | `MC_JOIN_CODE`      | _(none)_                    | When set, creating an account requires this code. Recommended. |
+| `MC_REQUIRE_LOCATION` | `1`                       | Set to `0` to let people clock in/out without a GPS fix        |
 | `MC_SECURE_COOKIES` | _(auto)_                    | `1`/`0` to force the `Secure` cookie flag on/off               |
 
 Set `MC_JOIN_CODE` before giving the URL to the crew so strangers can't make
 accounts and read the chat. Put the app behind HTTPS (any reverse proxy such as
 Caddy, nginx or a hosting platform works); the server honours
-`X-Forwarded-Proto` to mark cookies `Secure`.
+`X-Forwarded-Proto` to mark cookies `Secure`. **HTTPS is required for location
+capture**: phones only share GPS with secure pages (`localhost` also works for
+testing).
 
 ### API
 
@@ -62,9 +69,9 @@ set at login, or `Authorization: Bearer <token>`.
 | GET    | `/api/auth/me`          | Current user                                              |
 | GET    | `/api/team`             | Everyone with an account                                  |
 | GET    | `/api/time/status`      | Your open shift and who is clocked in now                 |
-| POST   | `/api/time/clock-in`    | `{note?}`                                                 |
-| POST   | `/api/time/clock-out`   | `{note?}`                                                 |
-| GET    | `/api/time/entries`     | Your shifts, newest first (`?limit=`)                     |
+| POST   | `/api/time/clock-in`    | `{note?, location: {lat, lng, accuracy?}}`                |
+| POST   | `/api/time/clock-out`   | `{note?, location: {lat, lng, accuracy?}}`                |
+| GET    | `/api/time/entries`     | Your shifts with `inLocation`/`outLocation` (`?limit=`)   |
 | GET    | `/api/chat/messages`    | Latest messages, or `?after=<id>` / `?before=<id>`        |
 | POST   | `/api/chat/messages`    | `{body}`                                                  |
 | GET    | `/api/chat/stream`      | Live events (`message`, `clock`) as Server-Sent Events     |

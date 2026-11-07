@@ -200,6 +200,11 @@ h2.section { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em;
   padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; box-shadow: var(--shadow);
 }
 
+.loc { font-size: 13px; color: var(--mint); text-decoration: none; font-weight: 600; }
+.loc.none { color: var(--muted); font-weight: 500; }
+.status .sub.small { font-size: 12px; margin-top: 6px; }
+.status .sub .loc { font-size: 14px; }
+
 /* Toast */
 .toast {
   position: fixed; left: 50%; bottom: calc(84px + var(--safe-bottom)); transform: translateX(-50%);
