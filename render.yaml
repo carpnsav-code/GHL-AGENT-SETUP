@@ -1,0 +1,17 @@
+# Render.com blueprint: New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: mint-concrete
+    runtime: docker
+    plan: starter            # persistent disks need a paid plan
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: MC_DB_FILE
+        value: /data/mint-concrete.sqlite
+      - key: MC_JOIN_CODE
+        sync: false          # set in the Render dashboard
+    healthCheckPath: /

@@ -56,6 +56,24 @@ Caddy, nginx or a hosting platform works); the server honours
 capture**: phones only share GPS with secure pages (`localhost` also works for
 testing).
 
+### Hosting it for the crew
+
+The crew's phones need a public HTTPS address. The repo ships a `Dockerfile`
+plus ready-made configs, so any of these works:
+
+- **Railway** (easiest): New Project → Deploy from GitHub repo → pick this
+  repo and branch. Add a volume mounted at `/data`, set `MC_JOIN_CODE` in
+  Variables, and enable a public domain under Settings → Networking.
+- **Render**: New → Blueprint → pick this repo; `render.yaml` sets up the
+  service and a 1 GB disk at `/data`. Set `MC_JOIN_CODE` when prompted.
+- **Fly.io**: `fly launch --copy-config --yes`, then
+  `fly volumes create data --size 1` and `fly secrets set MC_JOIN_CODE=...`.
+- **Your own server**: run the container with `-v /some/dir:/data -p 3000:3000`
+  and put Caddy or nginx in front for HTTPS.
+
+The SQLite file must live on persistent storage (`/data` in the configs), or
+accounts and time records vanish on every redeploy.
+
 ### API
 
 All endpoints are JSON under `/api`. Authentication is the `mc_session` cookie
